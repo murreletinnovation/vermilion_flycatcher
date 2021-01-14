@@ -4,101 +4,143 @@
 
 #include <SoftwareSerial.h>
 SoftwareSerial rfid_serial(5,6);
+#include <SD.h>
+#include "FS.h"
+#include "RTClib.h"
+
+RTC_PCF8523 rtc;
+const int chipSelect = 33;
+String logFilename;
+File logFile;
 
 void setup()
 {
-  Serial.begin(115200);
-  rfid_serial.begin(9600);
-  init_rfid();
+    Serial.begin(115200);
+    rfid_serial.begin(9600);
+    init_rfid();
+    
+    Wire.begin();
+  
+    if (! rtc.begin()) 
+    {
+        Serial.println("Couldn't find RTC");
+        Serial.flush();
+        abort();
+    }
+
+    if (! rtc.initialized() || rtc.lostPower()) 
+    {
+        Serial.println("RTC is NOT initialized, let's set the time!");
+        rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    }
+    
+    if (!SD.begin(chipSelect))
+    {
+        Serial.println("Card init. failed!");
+        abort();
+    }
+
+    DateTime now = rtc.now();
+    String epochString = String(now.unixtime());
+    
+    logFilename = "/log_" + epochString + ".csv";
+    logFile = SD.open(logFilename, FILE_WRITE);
+    output = "timestamp,device_num,rfid_id";
+    logFile.println(output);
+    logFile.close();
+    
+    rtc.start();
 }
 
-void loop() {
-  start_rfid_capture();
-  delay(500);
-  stop_rfid_capture();
-  delay(2000);
+void loop() 
+{
+    start_rfid_capture();
+    delay(100);
+    stop_rfid_capture();
+    delay(100);
 }
 
 void flush_buffer()
 {
-  /* Flush all characters in buffer */
-  while(rfid_serial.available())
-  {
-    rfid_serial.read();
-  }
+    /* Flush all characters in buffer */
+    while (rfid_serial.available())
+    {
+        rfid_serial.read();
+    }
 }
 
 void init_rfid()
 {
-  float freq = 0.0;
-  rfid_serial.print("SD2\r");
-  rfid_serial.print("SRD\r");
-  rfid_serial.print("RSD\r");
-  delay(300);
-  
-  flush_buffer();
-
-  /* Check the frequency of the antenna */ 
-  freq = get_rfid_freq();
-  Serial.println("Antenna Frequency: " + String(freq) + " kHz");
+    float freq = 0.0;
+    rfid_serial.print("SD2\r");
+    rfid_serial.print("SRD\r");
+    rfid_serial.print("RSD\r");
+    delay(300);
+    
+    flush_buffer();
+    
+    /* Check the frequency of the antenna */ 
+    freq = get_rfid_freq();
+    Serial.println("Antenna Frequency: " + String(freq) + " kHz");
 }
 
 float get_rfid_freq()
 {
-  float retv = 0.0;
-  rfid_serial.print("MOF\r");
-
-  delay(1400);
-  if(rfid_serial.available())
-  {
-    retv = rfid_serial.parseFloat();
-  }
-  
-  return retv;
+    float retv = 0.0;
+    rfid_serial.print("MOF\r");
+    
+    delay(1400);
+    if(rfid_serial.available())
+    {
+        retv = rfid_serial.parseFloat();
+    }
+    
+    return retv;
 }
 
 void start_rfid_capture()
 {
-  rfid_serial.print("SRA\r");
-  flush_buffer();
+    rfid_serial.print("SRA\r");
+    flush_buffer();
 }
 
 void stop_rfid_capture()
 {
-  uint32_t captured_id = check_rfid_id();
-  if(captured_id)
-  {
-    Serial.println("ID: " + String(captured_id));
-  }
-  rfid_serial.print("SRD\r");
-  flush_buffer();
+    uint32_t captured_id = check_rfid_id();
+    if(captured_id)
+    {
+        Serial.println("ID: " + String(captured_id));
+    }
+    rfid_serial.print("SRD\r");
+    flush_buffer();
 }
 
 uint32_t check_rfid_id()
 {
-  uint32_t retv = 0;
-  bool found_id = false;
-  uint8_t skipped_chars = 0;
-  while(rfid_serial.available())
-  {
-    char c = rfid_serial.read();
-    if(found_id)
+    uint32_t retv = 0;
+    bool found_id = false;
+    uint8_t skipped_chars = 0;
+    
+    while(rfid_serial.available())
     {
-      if(skipped_chars == 3)
-      {
-        retv = rfid_serial.parseInt();
-        found_id = false;
-        flush_buffer();
-        break;
-      }
-      skipped_chars++;
+        char c = rfid_serial.read();
+        if(found_id)
+        {
+            if(skipped_chars == 3)
+            {
+                retv = rfid_serial.parseInt();
+                found_id = false;
+                flush_buffer();
+                break;
+            }
+            skipped_chars++;
+        }
+        else if(c == '_')
+        {
+            found_id = true;
+            skipped_chars = 0;
+        }
     }
-    else if(c == '_')
-    {
-      found_id = true;
-      skipped_chars = 0;
-    }
-  }
-  
-  return retv;
+    
+    return retv;
 }
