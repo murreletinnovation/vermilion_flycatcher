@@ -1,31 +1,49 @@
 /* This program was developed for the Quantitative Conservation Lab at the University of Washington. The 
  * code should detect RFID PIT Tags (134.2 kHz) that are within 1 inch of the antenna coil.
+ * 
+ * RFID V+              -   5V
+ * RFID V-              -   GND
+ * MicroSD VCC          -   3.3V
+ * MicroSD GND          -   GND
+ * RTC VCC (PCF8523)    -   3.3V
+ * RTC GND (PCF8523)    -   GND
+ * MicroSD CS           -   pin 4
+ * RFID TX              -   pin 5
+ * RFID RX              -   pin 6
+ * MicroSD DI (MOSI)    -   pin 11
+ * MicroSD DO (MISO)    -   pin 12
+ * MicroSD SCK (SCK)    -   pin 13
+ * RTC SDA (PCF8523)    -   SDA
+ * RTC SCL (PCF8523)    -   SCL
  */
 
 #include <SoftwareSerial.h>
 SoftwareSerial rfid_serial(5,6);
 #include <SD.h>
-#include "FS.h"
 #include "RTClib.h"
 
 RTC_PCF8523 rtc;
-const int chipSelect = 33;
+const int chipSelect = 4;
 String logFilename;
 File logFile;
 
 void setup()
 {
+    String output;
+    
     Serial.begin(115200);
     rfid_serial.begin(9600);
     init_rfid();
-    
-    Wire.begin();
-  
+      
     if (! rtc.begin()) 
     {
         Serial.println("Couldn't find RTC");
         Serial.flush();
         abort();
+    }
+    else
+    {
+        Serial.println("Found RTC!");
     }
 
     if (! rtc.initialized() || rtc.lostPower()) 
@@ -33,11 +51,19 @@ void setup()
         Serial.println("RTC is NOT initialized, let's set the time!");
         rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     }
+    else
+    {
+        Serial.println("RTC is initialized!");
+    }
     
     if (!SD.begin(chipSelect))
     {
         Serial.println("Card init. failed!");
         abort();
+    }
+    else
+    {
+        Serial.println("Card init succeeded!");
     }
 
     DateTime now = rtc.now();
