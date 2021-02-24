@@ -33,12 +33,17 @@
 #define RFID_2_TX               7
 #define RFID_2_RX               8
 
+#define DETECTION_SLEEP_TIME    60000
+
 SoftwareSerial rfid_1_serial(RFID_1_TX, RFID_1_RX);
 SoftwareSerial rfid_2_serial(RFID_2_TX, RFID_2_RX);
 RTC_PCF8523 rtc;
 String logFilename;
 File logFile;
 uint8_t device_id;
+unsigned long detection_time_1 = 0;
+unsigned long detection_time_2 = 0;
+bool file_exists = false;
 
 void setup()
 {
@@ -94,12 +99,25 @@ void setup()
 
     DateTime now = rtc.now();
     logFilename = String(now.year()) + String(now.month()) + String(now.day()) + ".csv";
-    logFile = SD.open(logFilename, FILE_WRITE);
-    if(logFile)
+    
+    if (SD.exists(logFilename))
     {
-        output = "timestamp,device_num,rfid_id";
-        logFile.println(output);
-        logFile.close();
+        file_exists = true;
+    }
+    logFile = SD.open(logFilename, FILE_WRITE);
+    if (logFile)
+    {
+        if (!file_exists)
+        {
+            Serial.println("New File created");
+            output = "timestamp,device_num,rfid_id";
+            logFile.println(output);
+            logFile.close();
+        }
+        else
+        {
+            Serial.println("File exists. Appending");
+        }
     }
     else
     {
@@ -112,14 +130,35 @@ void setup()
 
 void loop() 
 {
-    start_rfid_capture(&rfid_1_serial);
-    delay(100);
-    stop_rfid_capture(&rfid_1_serial);
-    delay (10);
-    start_rfid_capture(&rfid_2_serial);
-    delay(100);
-    stop_rfid_capture(&rfid_2_serial);
-    delay (10);
+    uint32_t returned_id = 0;
+    
+    if (millis () - detection_time_1 >= DETECTION_SLEEP_TIME || detection_time_1 == 0)
+    {
+        start_rfid_capture(&rfid_1_serial);
+        delay(100);
+        returned_id = stop_rfid_capture(&rfid_1_serial);
+
+        /* If an ID was found, reset the detection timestamp */
+        if (returned_id != 0)
+        {
+            detection_time_1 = millis();
+        }
+        delay (10);
+    }
+
+    if (millis() - detection_time_2 >= DETECTION_SLEEP_TIME || detection_time_2 == 0)
+    {
+        start_rfid_capture(&rfid_2_serial);
+        delay(100);
+        returned_id = stop_rfid_capture(&rfid_2_serial);
+
+        /* If an ID was found, reset the detection timestamp */
+        if (returned_id != 0)
+        {
+            detection_time_2 = millis();
+        }
+        delay (10);
+    }
 }
 
 void flush_buffer(SoftwareSerial *rfid_serial)
@@ -179,7 +218,7 @@ void start_rfid_capture(SoftwareSerial *rfid_serial)
     flush_buffer(rfid_serial);
 }
 
-void stop_rfid_capture(SoftwareSerial *rfid_serial)
+uint32_t stop_rfid_capture(SoftwareSerial *rfid_serial)
 {
     DateTime now;
     String epochString;
@@ -200,6 +239,8 @@ void stop_rfid_capture(SoftwareSerial *rfid_serial)
     }
     rfid_serial->print("SRD\r");
     flush_buffer(rfid_serial);
+
+    return captured_id;
 }
 
 uint32_t check_rfid_id(SoftwareSerial *rfid_serial)
